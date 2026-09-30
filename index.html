@@ -40,7 +40,9 @@
     body.role-enc [data-action="roll-pending"], body.role-enc [data-action="copy-prev-week"], body.role-enc [data-action="pull-week"],
     body.role-enc [data-action="new-pmp"], body.role-enc [data-action="pull-pmp"], body.role-enc [data-action="del-pmp"],
     body.role-enc [data-action="import-crono"], body.role-enc [data-action="imp-template"], body.role-enc [data-action="new-obra"],
-    body.role-enc [data-action="fab"] { display: none !important; }
+    body.role-enc [data-action="fab"], body.role-enc [data-action="antecipar"] { display: none !important; }
+    .flash { animation: flash 2.2s ease-out; }
+    @keyframes flash { 0%, 35% { box-shadow: 0 0 0 4px rgba(184,134,43,.55); } 100% { box-shadow: 0 0 0 0 rgba(184,134,43,0); } }
     .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
     @media print {
       @page { size: A4 landscape; margin: 10mm; }
@@ -75,7 +77,15 @@
       </div>
     </div>
 
-    <nav id="nav-desktop" class="mt-5 flex-1 px-3 space-y-1"></nav>
+    <div class="px-4 mt-3">
+      <button data-action="quick-search" class="w-full flex items-center gap-2 rounded-xl bg-white/10 hover:bg-white/15 px-3 py-2.5 text-sm text-white/70 transition">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <span class="flex-1 text-left">Buscar serviço…</span>
+        <kbd class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-white/60">Ctrl K</kbd>
+      </button>
+    </div>
+
+    <nav id="nav-desktop" class="mt-4 flex-1 px-3 space-y-1"></nav>
 
     <div id="sync-status" class="px-4 pb-5 text-[11px] text-white/50 leading-relaxed"></div>
   </aside>
@@ -91,6 +101,9 @@
         <select id="obra-select-mobile" data-action="select-obra" class="w-full bg-transparent border-0 p-0 text-sm font-bold uppercase text-white focus:ring-0 focus:outline-none"></select>
       </div>
       <span id="sync-dot" class="h-2.5 w-2.5 rounded-full bg-emerald-400 shrink-0" title="Sincronização"></span>
+      <button data-action="quick-search" class="rounded-lg bg-white/10 p-2" aria-label="Buscar serviço">
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      </button>
       <button data-action="new-obra" class="rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold">+ Obra</button>
     </header>
 
@@ -499,6 +512,13 @@ function render() {
   else if (ui.view === 'pmp') main.innerHTML = viewPMP();
   else if (ui.view === 'ind') main.innerHTML = viewIND();
   else main.innerHTML = viewCFG();
+  if (ui.highlight) {
+    const id = ui.highlight; ui.highlight = null;
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-card="${id}"]`);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+    });
+  }
 }
 
 function emptyObra() {
@@ -620,6 +640,7 @@ function viewPCP() {
       ${fAtivos ? `<button data-action="clear-filters" class="md:hidden mt-3 text-sm font-semibold text-gold-dark">Limpar filtros</button>` : ''}
     </div>
 
+    ${outrasSemanasHTML(all, list)}
     ${body}
   </div>`;
 }
@@ -659,11 +680,13 @@ function cardHTML(t) {
   const field = (lbl, val) => `<div class="min-w-0"><div class="text-[9px] font-bold uppercase tracking-wider text-slate-400">${lbl}</div><div class="text-xs font-semibold text-slate-700 truncate">${esc(val) || '<span class="text-slate-300">—</span>'}</div></div>`;
   const pmpItem = t.pmpId ? state.pmp.find(p => p.id === t.pmpId) : null;
 
-  return `<article class="task-card fade-in rounded-2xl bg-white border border-slate-200 border-l-[5px] ${st.bar} shadow-sm hover:shadow-md transition p-4 flex flex-col">
+  return `<article data-card="${t.id}" class="task-card fade-in rounded-2xl bg-white border border-slate-200 border-l-[5px] ${st.bar} shadow-sm hover:shadow-md transition p-4 flex flex-col">
     <div class="flex items-start justify-between gap-3">
       <div class="min-w-0">
         <h3 class="font-bold text-[15px] leading-snug text-slate-900">${esc(t.titulo)}</h3>
         ${pmpItem ? `<div class="mt-0.5 text-[11px] text-slate-400 truncate">PMP: ${esc(pmpItem.etapa)}</div>` : ''}
+        ${t.antecipadaDe ? `<div class="mt-0.5 text-[11px] font-medium text-gold-dark">⚡ Antecipada da semana ${weekLabel(t.antecipadaDe)}</div>` : ''}
+        ${btnAntecipar(t)}
       </div>
       ${statusSelect(t)}
     </div>
@@ -728,17 +751,153 @@ function matsPanel(t) {
 function listRowHTML(t) {
   const st = STATUS[t.status] || STATUS.nao_iniciada;
   const meta = [t.setor, t.disciplina, t.responsavel && 'RESP: ' + t.responsavel, t.executante && 'EXEC: ' + t.executante, t.encarregado && 'ENC: ' + t.encarregado].filter(Boolean).map(esc).join(' <span class="text-slate-300">·</span> ');
-  return `<div class="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-4 px-4 py-3 border-l-[5px] ${st.bar} hover:bg-slate-50">
+  return `<div data-card="${t.id}" class="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-4 px-4 py-3 border-l-[5px] ${st.bar} hover:bg-slate-50">
     <div class="flex-1 min-w-0 cursor-pointer" data-action="edit-task" data-id="${t.id}">
       <div class="font-bold text-sm uppercase text-slate-800 truncate">${esc(t.titulo)}</div>
       <div class="text-[11px] font-medium text-slate-400 uppercase truncate">${meta}</div>
       ${t.causa ? `<div class="text-[11px] font-semibold text-rose-600 mt-0.5 flex items-center gap-1">${ICON.alert}${esc(t.causa)}</div>` : ''}
     </div>
     <div class="flex items-center gap-3">
+      ${btnAntecipar(t, true)}
       <div class="flex gap-1">${DIAS.map((_, i) => dayCell(t, i, true)).join('')}</div>
       ${statusSelect(t)}
     </div>
   </div>`;
+}
+
+// ---------------------------- Antecipar p/ hoje ---------------------------
+function btnAntecipar(t, compact = false) {
+  if (t.status === 'concluida') return '';
+  const cur = currentWeek();
+  if (t.semana === cur) return '';
+  const fut = t.semana > cur;
+  const label = fut ? '⚡ Antecipar p/ hoje' : '↩ Trazer p/ hoje';
+  const tip = fut ? 'Move esta tarefa para a semana atual, começando hoje' : 'Cria uma cópia desta pendência na semana atual, começando hoje (o histórico desta semana fica preservado)';
+  return `<button data-action="antecipar" data-id="${t.id}" title="${tip}" class="no-print ${compact ? '' : 'mt-2'} inline-flex items-center gap-1 rounded-full border border-gold/40 bg-gold-light px-2.5 py-1 text-[11px] font-bold text-gold-dark hover:bg-gold hover:text-white whitespace-nowrap transition">${label}</button>`;
+}
+function anteciparHoje(id) {
+  const t = findTask(id); if (!t) return;
+  const cur = currentWeek(), hoje = new Date(), hi = hoje.getDay();
+  const fut = t.semana > cur;
+  const diaTxt = `${['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][hi]} ${fmtDM(hoje)}`;
+  if (!confirm(`${fut ? 'Antecipar' : 'Trazer'} "${t.titulo}" da semana ${weekLabel(t.semana)} para hoje (${diaTxt})?`)) return;
+  const dup = tarefasSemana(cur).find(x => x.id !== t.id && norm(x.titulo) === norm(t.titulo));
+  if (dup && !confirm(`Já existe "${dup.titulo}" na semana atual. Continuar mesmo assim?`)) return;
+  // Replaneja a mesma quantidade de dias, a partir de hoje, nos dias de trabalho da semana
+  const n = Math.max(1, t.dias.filter(v => v !== null).length);
+  const dias = Array(7).fill(null); let c = 0;
+  for (let i = hi; i < 7 && c < n; i++) {
+    const util = (i >= 1 && i <= 5) || (i === 6 && state.prefs.sabado) || (i === 0 && state.prefs.domingo);
+    if (i === hi || util) { dias[i] = 'p'; c++; }
+  }
+  let alvo = t;
+  if (fut) { t.antecipadaDe = t.semana; t.semana = cur; t.dias = dias; if (t.status === 'impedida' && !t.causa) t.status = 'nao_iniciada'; }
+  else { alvo = copyTaskTo(t, cur); alvo.dias = dias; alvo.antecipadaDe = ''; state.tarefas.push(alvo); }
+  // Etapa do PMP que ainda não tinha começado passa a começar hoje
+  let ajustou = false;
+  const pm = t.pmpId && state.pmp.find(p => p.id === t.pmpId);
+  if (pm && pm.inicio > todayKey()) { pm.inicio = todayKey(); if (pm.fim < pm.inicio) pm.fim = pm.inicio; ajustou = true; }
+  save();
+  closeModal();
+  ui.view = 'pcp'; ui.week = cur; ui.highlight = alvo.id;
+  Object.keys(ui.filters).forEach(k => ui.filters[k] = '');
+  render();
+  toast(`${fut ? 'Antecipada' : 'Trazida'} para hoje ✓${ajustou ? ' · início da etapa no PMP ajustado' : ''}`);
+}
+
+// ---------------------------- Busca rápida (todas as semanas) ------------
+function buscaServicos(q, soPendentes) {
+  const toks = norm(q).split(' ').filter(Boolean);
+  if (!toks.length) return { tarefas: [], pmp: [] };
+  const casa = txt => { const n = norm(txt); return toks.every(k => n.includes(k)); };
+  const cur = currentWeek();
+  const tarefas = tarefasObra().filter(t =>
+    (!soPendentes || t.status !== 'concluida') &&
+    casa([t.titulo, t.setor, t.disciplina, t.executante, t.responsavel, t.encarregado, t.obs, t.causa, (t.materiais || []).map(m => m.nome).join(' ')].join(' '))
+  ).sort((a, b) => {
+    const ra = a.semana === cur ? 0 : a.semana > cur ? 1 : 2, rb = b.semana === cur ? 0 : b.semana > cur ? 1 : 2;
+    if (ra !== rb) return ra - rb;
+    return ra === 2 ? b.semana.localeCompare(a.semana) : a.semana.localeCompare(b.semana);
+  });
+  const pmp = pmpObra().filter(p => casa([p.etapa, p.setor, p.disciplina, p.responsavel].join(' ')))
+    .filter(p => !soPendentes || realPMP(p) < 100);
+  return { tarefas, pmp };
+}
+function outrasSemanasHTML(all, list) {
+  const q = ui.filters.q.trim();
+  if (!q) return '';
+  const r = buscaServicos(q, false).tarefas.filter(t => t.semana !== ui.week);
+  if (!r.length) return '';
+  return `<button data-action="quick-search" data-q="${esc(q)}" class="no-print mb-4 w-full flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-light px-4 py-3 text-left text-sm text-gold-dark hover:bg-gold/20">
+    <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    <span class="flex-1"><b>${r.length}</b> resultado${r.length > 1 ? 's' : ''} para “${esc(q)}” em outras semanas${list.length ? '' : ' (nenhum nesta)'} — toque para ver</span>${ICON.chevR}</button>`;
+}
+function openQuickSearch(q = '') {
+  ui.qs = { q, soPend: ui.qs?.soPend ?? true };
+  openModal(`
+    <div class="px-4 pt-4 pb-3 border-b border-slate-100">
+      <div class="md:hidden mx-auto mb-3 h-1 w-10 rounded-full bg-slate-200"></div>
+      <div class="flex items-center gap-2">
+        <div class="relative flex-1">
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="qs-input" type="search" enterkeyhint="search" autocomplete="off" value="${esc(q)}" placeholder="Buscar serviço, setor, equipe, material…" class="w-full rounded-xl border-2 border-slate-200 focus:border-gold pl-10 pr-3 py-3 text-base outline-none" />
+        </div>
+        <button data-action="close-modal" class="h-11 px-3 rounded-xl text-sm font-semibold text-slate-500 hover:bg-slate-100">Fechar</button>
+      </div>
+      <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer select-none">
+        <input id="qs-pend" type="checkbox" ${ui.qs.soPend ? 'checked' : ''} class="h-4 w-4 accent-[#004422]" /> Só pendentes (esconde concluídas)
+      </label>
+    </div>
+    <div id="qs-results" class="flex-1 overflow-y-auto px-2 py-2 min-h-[40vh]"></div>`);
+  renderQuickResults();
+  setTimeout(() => { const i = $('#qs-input'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 60);
+}
+function renderQuickResults() {
+  const box = $('#qs-results'); if (!box) return;
+  const q = ui.qs.q.trim();
+  if (!q) {
+    box.innerHTML = `<div class="px-4 py-10 text-center text-sm text-slate-400">Digite parte do nome do serviço — ex.: <i>reboco</i>, <i>esgoto pav 1</i>, <i>josé</i>.<br>Procura em <b>todas as semanas</b> do PCP e nas etapas do PMP.</div>`;
+    return;
+  }
+  const { tarefas, pmp } = buscaServicos(q, ui.qs.soPend);
+  const cur = currentWeek();
+  const rel = w => w === cur ? '<span class="rounded bg-emerald-500 text-white text-[10px] font-bold px-1.5 py-0.5">ESTA SEMANA</span>'
+    : w > cur ? '<span class="rounded bg-sky-100 text-sky-700 text-[10px] font-bold px-1.5 py-0.5">FUTURA</span>'
+    : '<span class="rounded bg-slate-100 text-slate-500 text-[10px] font-bold px-1.5 py-0.5">PASSADA</span>';
+  const linhaT = t => {
+    const st = STATUS[t.status] || STATUS.nao_iniciada;
+    const meta = [t.setor, t.disciplina, t.executante].filter(Boolean).map(esc).join(' · ');
+    return `<div class="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-slate-50">
+      <span class="h-2.5 w-2.5 shrink-0 rounded-full ${st.dot}" title="${st.label}"></span>
+      <button data-action="qs-go" data-id="${t.id}" class="flex-1 min-w-0 text-left">
+        <div class="text-sm font-semibold text-slate-800 truncate">${esc(t.titulo)}</div>
+        <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 mt-0.5">${rel(t.semana)}<span>${weekLabel(t.semana)}</span>${meta ? `<span class="truncate">· ${meta}</span>` : ''}<span>· ${st.label}</span></div>
+      </button>
+      ${btnAntecipar(t, true)}
+    </div>`;
+  };
+  const linhaP = p => {
+    const av = avancoPMP(p);
+    return `<button data-action="qs-pmp" data-id="${p.id}" class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-slate-50 text-left">
+      <span class="text-[10px] font-bold rounded bg-brand/10 text-brand px-1.5 py-0.5">PMP</span>
+      <span class="flex-1 min-w-0"><span class="block text-sm font-semibold text-slate-800 truncate">${esc(p.etapa)}</span>
+      <span class="block text-[11px] text-slate-400">${fmtDMY(fromKey(p.inicio))} a ${fmtDMY(fromKey(p.fim))}${p.setor ? ' · ' + esc(p.setor) : ''} · ${av.real}% realizado</span></span>
+      ${ICON.chevR}</button>`;
+  };
+  if (!tarefas.length && !pmp.length) {
+    box.innerHTML = `<div class="px-4 py-10 text-center text-sm text-slate-400">Nenhum serviço encontrado para “${esc(q)}”${ui.qs.soPend ? ' entre os pendentes. <button data-action="qs-all" class="font-semibold text-gold-dark underline">Incluir concluídas</button>' : '.'}</div>`;
+    return;
+  }
+  box.innerHTML = `
+    ${tarefas.length ? `<div class="px-3 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Tarefas do PCP (${tarefas.length})</div>${tarefas.slice(0, 50).map(linhaT).join('')}${tarefas.length > 50 ? `<div class="px-3 py-2 text-xs text-slate-400">+ ${tarefas.length - 50}… refine a busca</div>` : ''}` : ''}
+    ${pmp.length ? `<div class="px-3 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Etapas do PMP (${pmp.length})</div>${pmp.slice(0, 20).map(linhaP).join('')}` : ''}`;
+}
+function irParaTarefa(id) {
+  const t = findTask(id); if (!t) return;
+  closeModal();
+  ui.view = 'pcp'; ui.week = t.semana; ui.highlight = id;
+  Object.keys(ui.filters).forEach(k => ui.filters[k] = '');
+  render();
 }
 
 // ---------------------------- VIEW: PMP ----------------------------------
@@ -2125,7 +2284,7 @@ function cfgUsuariosHTML() {
 }
 
 // ---------------------------- Eventos ------------------------------------
-const GESTOR_ONLY = new Set(['new-task', 'edit-task', 'dup-task', 'del-task', 'submit-task', 'roll-pending', 'copy-prev-week', 'pull-week',
+const GESTOR_ONLY = new Set(['antecipar', 'new-task', 'edit-task', 'dup-task', 'del-task', 'submit-task', 'roll-pending', 'copy-prev-week', 'pull-week',
   'new-pmp', 'edit-pmp', 'pull-pmp', 'del-pmp', 'submit-pmp', 'import-crono', 'imp-template', 'imp-apply', 'new-obra', 'edit-obra',
   'del-obra', 'del-causa', 'reset', 'import-json', 'fab', 'cloud-migrate', 'show-rules']);
 document.addEventListener('click', (e) => {
@@ -2182,6 +2341,11 @@ document.addEventListener('click', (e) => {
     case 'nav': ui.view = el.dataset.view; ui.showFilters = false; render(); $('#main').scrollTop = 0; break;
     case 'fab': ui.view === 'pmp' ? openPmpModal() : openTaskModal(); break;
     case 'new-task': openTaskModal(); break;
+    case 'quick-search': openQuickSearch(el.dataset.q || ''); break;
+    case 'qs-go': irParaTarefa(id); break;
+    case 'qs-all': { ui.qs.soPend = false; const cb = $('#qs-pend'); if (cb) cb.checked = false; renderQuickResults(); break; }
+    case 'qs-pmp': closeModal(); ui.view = 'pmp'; render(); if (isGestor()) openPmpModal(state.pmp.find(p => p.id === id)); break;
+    case 'antecipar': anteciparHoje(id); break;
     case 'edit-task': openTaskModal(findTask(id)); break;
     case 'submit-task': submitTask(); break;
     case 'close-modal': closeModal(); break;
@@ -2289,6 +2453,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('change', (e) => {
   const el = e.target;
   if (el.matches('[data-filter]') && el.tagName === 'SELECT') { ui.filters[el.dataset.filter] = el.value; render(); return; }
+  if (el.id === 'qs-pend') { ui.qs.soPend = el.checked; renderQuickResults(); return; }
   // --- Usuários (gestor) ---
   if (el.dataset.userField) {
     const v = el.type === 'checkbox' ? el.checked : el.value;
@@ -2341,6 +2506,7 @@ document.addEventListener('change', (e) => {
 let searchTimer;
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.id === 'qs-input') { ui.qs.q = el.value; renderQuickResults(); return; }
   if (el.id === 'search') {
     ui.filters.q = el.value;
     clearTimeout(searchTimer);
@@ -2402,6 +2568,12 @@ document.addEventListener('submit', (e) => {
 // Enter no campo de material do modal adiciona o item (em vez de enviar o formulário)
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && $('#modal-root').innerHTML) closeModal();
+  // Ctrl+K / ⌘K ou "/" abre a busca rápida
+  const digitando = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+  if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') || (e.key === '/' && !digitando)) {
+    if (!$('#auth-root').innerHTML && (!Cloud.enabled || Cloud.ready)) { e.preventDefault(); openQuickSearch(); }
+  }
+  if (e.key === 'Enter' && e.target.id === 'qs-input') { const first = document.querySelector('#qs-results [data-action="qs-go"], #qs-results [data-action="qs-pmp"]'); if (first) { e.preventDefault(); first.click(); } }
   if (e.key === 'Enter' && ['dm-nome', 'dm-qtd', 'dm-un'].includes(e.target.id)) { e.preventDefault(); addDraftMat(); }
 });
 
